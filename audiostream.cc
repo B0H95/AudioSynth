@@ -19,7 +19,7 @@ AudioStream::AudioStream() :
 	exit(1);
     }
 
-      SDL_PauseAudio(0);
+    SDL_PauseAudio(0);
 }
 
 AudioStream::~AudioStream()
