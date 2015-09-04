@@ -1,4 +1,11 @@
-#include "audiogenerators.hh"
+#include "wavetable.hh"
+
+WaveTable::WaveTable() :
+    waveData()
+{
+}
+
+// NOT WAVETABLE
 
 float GeneratePulseWave(float timePassed, float frequency, float pulseWidth)
 {
