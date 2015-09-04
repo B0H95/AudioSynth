@@ -1,15 +1,15 @@
 CCC = g++
 CCFLAGS = -std=c++11 -Wall -Wextra
 LIBS = -lSDL2
-FILES = *.cc
+FILES = src/*.cc
 NAME = audiosynth
 
-all: audiosynth
+all: compile
 
-run : $(NAME)
+run :
 	./$(NAME)
 
-audiosynth :
+compile :
 	$(CCC) $(CCFLAGS) $(FILES) -o $(NAME) $(LIBS)
 
 clean :
