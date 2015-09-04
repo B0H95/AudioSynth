@@ -1,25 +1,40 @@
 #include <iostream>
 #include <SDL2/SDL.h>
 
-#include "audiogenerators.hh"
-#include "audiostream.hh"
+#include "utility.hh"
+#include "testcomp.hh"
+#include "testeff.hh"
 
 using namespace std;
 
 int main()
 {
-    AudioStream as;
-    
-    float playtime;
-    cout << "Input playtime in seconds: ";
-    cin >> playtime;
-    for (int i=0; i<int(44100.0f*playtime); ++i)
+    TestComp tc;
+    TestEff te;
+    te.AddSource(0, &tc);
+    te.AddSource(0, &tc);
+
+    for (int i=0; i<100; ++i)
     {
-	float n1 = GenerateSineWave(i/44100.0f, 440);
-	as << n1;
+	DrawSample(-1.0f, te.GetSample(), 1.0f, 70);
+	te.NextSample();
+    }
+    te.Reset();
+    cout << "------------------------------------" << endl;
+    te.RemoveSource(0, &tc);
+ 
+    for (int i=0; i<100; ++i)
+    {
+	DrawSample(-1.0f, te.GetSample(), 1.0f, 70);
+	te.NextSample();
     }
     
-    SDL_Delay(int(playtime*1000.0f));
+    cout << "------------------------------------" << endl;
+    for (int i=0; i<100; ++i)
+    {
+	DrawSample(-1.0f, tc.GetSample(), 1.0f, 70);
+	tc.NextSample();
+    }
 
     return 0;
 }

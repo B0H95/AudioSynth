@@ -17,7 +17,7 @@ void AudioComponent::AddSource(int sourceIndex, AudioComponent* component)
     }
     else
     {
-	audioSources[sourceIndex] == std::vector<AudioComponent*>(1, component);
+	audioSources[sourceIndex] = std::vector<AudioComponent*>(1, component);
     }
 }
 
@@ -76,7 +76,7 @@ void AudioComponent::SendResetSignal()
 
 bool AudioComponent::FindComponent(int sourceIndex, AudioComponent* component)
 {
-    return (std::find(audioSources[sourceIndex].begin(), audioSources[sourceIndex].end(), component) == audioSources[sourceIndex].end());
+    return (std::find(audioSources[sourceIndex].begin(), audioSources[sourceIndex].end(), component) != audioSources[sourceIndex].end());
 }
 
 bool AudioComponent::SourcesHasKey(int sourceIndex)

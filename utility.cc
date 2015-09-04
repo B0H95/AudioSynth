@@ -1,6 +1,6 @@
 #include "utility.hh"
 
-void drawSample(float min, float value, float max, int charlimit)
+void DrawSample(float min, float value, float max, int charlimit)
 {
     int counter = 0;
     float newValue = value - min;

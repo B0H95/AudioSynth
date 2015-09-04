@@ -3,6 +3,6 @@
 
 #include <iostream>
 
-void drawSample(float min, float value, float max, int charlimit);
+void DrawSample(float min, float value, float max, int charlimit);
 
 #endif
