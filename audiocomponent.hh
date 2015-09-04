@@ -1,8 +1,9 @@
 #ifndef AUDIOCOMPONENT_H
 #define AUDIOCOMPONENT_H
 
-#include <vector>
+#include <algorithm>
 #include <map>
+#include <vector>
 
 class AudioComponent
 {
@@ -14,13 +15,17 @@ public:
     virtual void Reset() = 0;
 
     void AddSource(int sourceIndex, AudioComponent* component);
-    float MixSource(int sourceIndex);
-    void RemoveSource(AudioComponent* component);
     void RemoveSource(int sourceIndex, AudioComponent* component);
+
+protected:
+    float MixSource(int sourceIndex);
+    void SendNextSampleSignal();
+    void SendResetSignal();
 
 private:
     std::map<int, std::vector<AudioComponent*>> audioSources;
 
+    bool FindComponent(int sourceIndex, AudioComponent* component);
     bool SourcesHasKey(int sourceIndex);
 };
 

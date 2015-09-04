@@ -52,7 +52,7 @@ void AudioCallback(void *userdata, Uint8 *stream, int len)
 {
     SDL_memset(stream, 0, len);
     std::vector<Sint32>* samples = (std::vector<Sint32>*)userdata; 
-    if (samples->size() >= len / 4)
+    if (samples->size() >= (unsigned int)len / 4)
     {
 	Uint8* sampleptr = reinterpret_cast<Uint8*>(&(*samples)[0]);
 	SDL_MixAudio(stream, sampleptr, len, SDL_MIX_MAXVOLUME);
