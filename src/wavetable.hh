@@ -6,13 +6,33 @@
 #include <string>
 #include <vector>
 
+/* 
+   Standard wave names:
+    - Pulse wave = "pulse"
+    - Ascending saw wave = "saw asc"
+    - Descending saw wave = "saw desc"
+    - Sine wave = "sine"
+    - Ascending triangle wave = "tri asc"
+    - Descending triangle wave = "tri desc"
+ */
+
 class WaveTable
 {
 public:
-    WaveTable();
+    WaveTable(int newSampleAmount);
+
+    int GetWaveformSize();
+    void LoadStandardWaveforms();
+    std::vector<float>* RequestWaveform(std::string waveformName);
 
 private:
+    int sampleAmount;
     std::map<std::string, std::vector<float>> waveData;
+
+    void LoadPulseWave();
+    void LoadSawWaves();
+    void LoadSineWave();
+    void LoadTriangleWaves();
 };
 
 float GeneratePulseWave(float timePassed, float frequency, float pulseWidth);
