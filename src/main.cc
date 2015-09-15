@@ -12,12 +12,19 @@ int main()
 {
     AudioStream as;
 
-    WaveTable wavetable (100000);
+    WaveTable wavetable (1000000);
+    cout << "Loading standard waveforms..." << flush;
     wavetable.LoadStandardWaveforms();
+    cout << "Complete" << endl;
 
     AudioOscillator osc (44100);
-    osc.SetFrequency(440.0f);
-    if (!osc.SetWaveform("sine", wavetable))
+    osc.SetADSR(0.5f, 0.2f, 0.6f, 4.0f);
+    osc.SetAmplitude(0.33f);
+    osc.SetSustain(false);
+    osc.TriggerNote(293.66f);
+    osc.TriggerNote(349.23f);
+    osc.TriggerNote(440.00f);
+    if (!osc.SetWaveform("tri asc", wavetable))
     {
 	cout << "Tried to load a non-existing waveform. Closed." << endl;
 	return 1;
