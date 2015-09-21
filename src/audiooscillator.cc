@@ -106,15 +106,15 @@ void AudioOscillator::TriggerNote(float freq)
 
 float AudioOscillator::GetADSRModifier(float timePassed)
 {
-    if (timePassed <= attack)
+    if (timePassed < attack)
     {
 	return timePassed / attack;
     }
-    else if (timePassed <= attack + decay)
+    else if (timePassed < attack + decay)
     {
         return sustain + ((1 - ((timePassed - attack) / decay)) * (1 - sustain));
     }
-    else if (timePassed <= attack + decay + release)
+    else if (timePassed < attack + decay + release)
     {
 	return sustain * (1 - ((timePassed - attack - decay) / release));
     }

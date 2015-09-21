@@ -2,62 +2,45 @@
 
 // PUBLIC
 
-AudioComponent::AudioComponent()
+AudioComponent::AudioComponent() :
+    availableSources(),
+    audioSources()
 {
 }
 
-void AudioComponent::AddSource(int sourceIndex, AudioComponent* component)
+void AudioComponent::RemoveSource(int sourceIndex)
 {
-    if (SourcesHasKey(sourceIndex))
-    {
-	if (!FindComponent(sourceIndex, component))
-	{
-	    audioSources[sourceIndex].push_back(component);
-	}
-    }
-    else
-    {
-	audioSources[sourceIndex] = std::vector<AudioComponent*>(1, component);
-    }
+    audioSources.erase(sourceIndex);
+    availableSources.erase(sourceIndex);
 }
 
-void AudioComponent::RemoveSource(int sourceIndex, AudioComponent* component)
+void AudioComponent::SetSource(int sourceIndex, AudioComponent* component)
 {
-    if (SourcesHasKey(sourceIndex) && FindComponent(sourceIndex, component))
-    {
-	std::vector<AudioComponent*>::iterator itBegin = audioSources[sourceIndex].begin();
-	std::vector<AudioComponent*>::iterator itEnd = audioSources[sourceIndex].end();
-	audioSources[sourceIndex].erase(std::remove(itBegin, itEnd, component), itEnd);
-    }
+    audioSources[sourceIndex] = component;
+    availableSources.insert(sourceIndex);
 }
 
 // PROTECTED
 
+std::set<int> const& AudioComponent::GetAvailableSources()
+{
+    return availableSources;
+}
+
 float AudioComponent::MixSource(int sourceIndex)
 {
-    if (SourcesHasKey(sourceIndex))
+    if (audioSources.find(sourceIndex) != audioSources.end())
     {
-	float mix = 0.0f;
-	for (AudioComponent*& component : audioSources[sourceIndex])
-	{
-	    mix += component->GetSample();
-	}
-	return mix;
+	return audioSources[sourceIndex]->GetSample();
     }
-    else
-    {
-	return 0.0f;
-    }
+    return 0.0f;
 }
 
 void AudioComponent::SendNextSampleSignal()
 {
     for (auto& audioSource : audioSources)
     {
-	for (AudioComponent*& component : audioSource.second)
-	{
-	    component->NextSample();
-	}
+	audioSource.second->NextSample();
     }
 }
 
@@ -65,21 +48,6 @@ void AudioComponent::SendResetSignal()
 {
     for (auto& audioSource : audioSources)
     {
-	for (AudioComponent*& component : audioSource.second)
-	{
-	    component->Reset();
-	}
+	audioSource.second->Reset();
     }
-}
-
-// PRIVATE
-
-bool AudioComponent::FindComponent(int sourceIndex, AudioComponent* component)
-{
-    return (std::find(audioSources[sourceIndex].begin(), audioSources[sourceIndex].end(), component) != audioSources[sourceIndex].end());
-}
-
-bool AudioComponent::SourcesHasKey(int sourceIndex)
-{
-    return (audioSources.find(sourceIndex) != audioSources.end());
 }
