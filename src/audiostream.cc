@@ -2,7 +2,11 @@
 
 AudioStream::AudioStream() :
     audioSpec(),
-    sampleList()
+    bufferBegin(0),
+    bufferEnd(0),
+    differenceBeginEnd(0),
+    ringBuffer(),
+    savedSamples()
 {
     SDL_Init(SDL_INIT_AUDIO);
 
@@ -11,7 +15,7 @@ AudioStream::AudioStream() :
     audioSpec.samples = 1024;
     audioSpec.callback = AudioCallback;
     audioSpec.channels = 1;
-    audioSpec.userdata = (void*)&sampleList;
+    audioSpec.userdata = (void*)this;
 
     if (SDL_OpenAudio(&audioSpec, NULL) < 0)
     {
@@ -43,7 +47,14 @@ void AudioStream::operator<<(float sample)
     {
 	newSample = -SINT32_MAX;
     }
-    sampleList.push_back(newSample);
+    ringBuffer[bufferEnd] = newSample;
+    bufferEnd = (bufferEnd + 1) % BUFFER_SIZE;
+    ++differenceBeginEnd;
+}
+
+bool AudioStream::HasSpaceLeft()
+{
+    return differenceBeginEnd < BUFFER_SIZE;
 }
 
 // NOT AUDIOSTREAM
@@ -51,11 +62,13 @@ void AudioStream::operator<<(float sample)
 void AudioCallback(void *userdata, Uint8 *stream, int len)
 {
     SDL_memset(stream, 0, len);
-    std::vector<Sint32>* samples = (std::vector<Sint32>*)userdata; 
-    if (samples->size() >= (unsigned int)len / 4)
+    AudioStream* as = (AudioStream*)userdata; 
+    if (as->differenceBeginEnd >= len / 4)
     {
-	Uint8* sampleptr = reinterpret_cast<Uint8*>(&(*samples)[0]);
+	Uint8* sampleptr = reinterpret_cast<Uint8*>(&(as->ringBuffer[as->bufferBegin]));
 	SDL_MixAudio(stream, sampleptr, len, SDL_MIX_MAXVOLUME);
-	samples->erase(samples->begin(), samples->begin() + (len / 4));
+	as->bufferBegin += len / 4;
+	as->bufferBegin %= BUFFER_SIZE;
+	as->differenceBeginEnd -= len / 4;
     }
 }
