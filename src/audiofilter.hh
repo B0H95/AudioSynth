@@ -3,6 +3,8 @@
 
 #include "audiocomponent.hh"
 
+enum FilterType {LOWPASS, HIGHPASS};
+
 class AudioFilter : public AudioComponent
 {
 public:
@@ -12,14 +14,16 @@ public:
     void NextSample();
     void Reset();
 
-    void SetTimeConstant(float tc);
+    void SetCutoffValue(float cutoff);
+    void SetFilterType(FilterType ftype);
 
 private:
     float currentSample;
+    float cutoffValue;
+    FilterType filterType;
+    float previousMix;
     bool sampleComplete;
     int sampleRate;
-    float timeConstant;
-    float timeInterval;
 };
 
 #endif

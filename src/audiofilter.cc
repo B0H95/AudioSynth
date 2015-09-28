@@ -3,10 +3,11 @@
 AudioFilter::AudioFilter(int newSampleRate) :
     AudioComponent(),
     currentSample(0.0f),
+    cutoffValue(1.0f),
+    filterType(LOWPASS),
+    previousMix(0.0f),
     sampleComplete(false),
-    sampleRate(newSampleRate),
-    timeConstant(1.0f),
-    timeInterval(1.0f/newSampleRate)
+    sampleRate(newSampleRate)
 {
 }
 
@@ -14,8 +15,16 @@ float AudioFilter::GetSample()
 {
     if (!sampleComplete)
     {
-	float alpha = timeInterval / (timeInterval + timeConstant);
-	currentSample = currentSample + alpha * (MixSource(0) - currentSample);
+	float mix = MixSource(0);
+	if (filterType == LOWPASS)
+	{
+	    currentSample = currentSample + cutoffValue * (mix - currentSample);
+	}
+	else if (filterType == HIGHPASS)
+	{
+	    currentSample = cutoffValue * (currentSample + mix - previousMix);
+	}
+	previousMix = mix;
 	sampleComplete = true;
     }
     return currentSample;
@@ -31,10 +40,19 @@ void AudioFilter::Reset()
 {
     sampleComplete = false;
     currentSample = 0.0f;
+    previousMix = 0.0f;
     SendResetSignal();
 }
 
-void AudioFilter::SetTimeConstant(float tc)
+void AudioFilter::SetCutoffValue(float cutoff)
 {
-    timeConstant = tc;
+    if (0.0f <= cutoff && cutoff <= 1.0f)
+    {
+	cutoffValue = cutoff;
+    }
+}
+
+void AudioFilter::SetFilterType(FilterType ftype)
+{
+    filterType = ftype;
 }
