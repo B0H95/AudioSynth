@@ -1,13 +1,15 @@
 #ifndef AUDIOOSCILLATOR_H
 #define AUDIOOSCILLATOR_H
 
+#include <map>
 #include <string>
 #include <vector>
 
 #include "audiocomponent.hh"
+#include "audiocontroller.hh"
 #include "wavetable.hh"
 
-class AudioOscillator : public AudioComponent
+class AudioOscillator : public AudioComponent, public AudioController
 {
 public:
     AudioOscillator(int newSampleRate);
@@ -16,13 +18,14 @@ public:
     void NextSample();
     void Reset();
 
-    void ReleaseNote(float freq);
+    void Release(int index);
+    void Trigger(float freq, float force, int index);
+
     void SetADSR(float a, float d, float s, float r);
     void SetAmplitude(float newAmp);
     void SetSampleRate(int newSampleRate);
     void SetSustain(bool newSustain);
     bool SetWaveform(std::string waveformName, WaveTable& wavetable);
-    void TriggerNote(float freq);
 
 private:
     float GetADSRModifier(float timePassed);
@@ -30,6 +33,7 @@ private:
     
     struct note
     {
+	float force;
 	float frequency;
 	bool sustains;
 	float time;
@@ -40,7 +44,7 @@ private:
     float attack;
     float currentSample;
     float decay;
-    std::vector<note> noteList;
+    std::map<int, note> noteMap;
     float release;
     bool sampleComplete;
     int sampleRate;
