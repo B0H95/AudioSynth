@@ -23,6 +23,7 @@ public:
 
     void SetADSR(float a, float d, float s, float r);
     void SetAmplitude(float newAmp);
+    void SetFrequencyTuning(float newFreqT);
     void SetSampleRate(int newSampleRate);
     void SetSustain(bool newSustain);
     bool SetWaveform(std::string waveformName, WaveTable& wavetable);
@@ -44,6 +45,7 @@ private:
     float attack;
     float currentSample;
     float decay;
+    float frequencyTuning;
     std::map<int, note> noteMap;
     float release;
     bool sampleComplete;
