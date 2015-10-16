@@ -1,6 +1,8 @@
 #include "inputkeyboardnote.hh"
 
-InputKeyboardNote::InputKeyboardNote()
+InputKeyboardNote::InputKeyboardNote() :
+    a(1.0594630943592953f),
+    halfStepMod(0)
 {
 }
 
@@ -11,53 +13,59 @@ float InputKeyboardNote::GetNoteFromKeypress(SDL_Event e)
 	switch (e.key.keysym.sym)
 	{
 	case SDLK_z:
-	    return 261.63f;
+	    return 440.00f * pow(a, halfStepMod - 9);
 	case SDLK_s:
-	    return 277.18f;
+	    return 440.00f * pow(a, halfStepMod - 8);
 	case SDLK_x:
-	    return 293.66f;
+	    return 440.00f * pow(a, halfStepMod - 7);
 	case SDLK_d:
-	    return 311.13f;
+	    return 440.00f * pow(a, halfStepMod - 6);
 	case SDLK_c:
-	    return 329.63f;
+	    return 440.00f * pow(a, halfStepMod - 5);
 	case SDLK_v:
-	    return 349.23f;
+	    return 440.00f * pow(a, halfStepMod - 4);
 	case SDLK_g:
-	    return 369.99f;
+	    return 440.00f * pow(a, halfStepMod - 3);
 	case SDLK_b:
-	    return 392.00f;
+	    return 440.00f * pow(a, halfStepMod - 2);
 	case SDLK_h:
-	    return 415.30f;
+	    return 440.00f * pow(a, halfStepMod - 1);
 	case SDLK_n:
-	    return 440.00f;
+	    return 440.00f * pow(a, halfStepMod);
 	case SDLK_j:
-	    return 466.16f;
+	    return 440.00f * pow(a, 1 + halfStepMod);
 	case SDLK_m:
-	    return 493.88f;	
+	    return 440.00f * pow(a, 2 + halfStepMod);	
 	case SDLK_q:
-	    return 523.25f;
+	    return 440.00f * pow(a, 3 + halfStepMod);
 	case SDLK_2:
-	    return 554.37f;
+	    return 440.00f * pow(a, 4 + halfStepMod);
 	case SDLK_w:
-	    return 587.33f;
+	    return 440.00f * pow(a, 5 + halfStepMod);
 	case SDLK_3:
-	    return 622.25f;
+	    return 440.00f * pow(a, 6 + halfStepMod);
 	case SDLK_e:
-	    return 659.25f;
+	    return 440.00f * pow(a, 7 + halfStepMod);
 	case SDLK_r:
-	    return 698.46f;
+	    return 440.00f * pow(a, 8 + halfStepMod);
 	case SDLK_5:
-	    return 739.99f;
+	    return 440.00f * pow(a, 9 + halfStepMod);
 	case SDLK_t:
-	    return 783.99f;
+	    return 440.00f * pow(a, 10 + halfStepMod);
 	case SDLK_6:
-	    return 830.61f;
+	    return 440.00f * pow(a, 11 + halfStepMod);
 	case SDLK_y:
-	    return 880.00f;
+	    return 440.00f * pow(a, 12 + halfStepMod);
 	case SDLK_7:
-	    return 932.33f;
+	    return 440.00f * pow(a, 13 + halfStepMod);
 	case SDLK_u:
-	    return 987.77f;
+	    return 440.00f * pow(a, 14 + halfStepMod);
+	case SDLK_p:
+	    halfStepMod += 6;
+	    return 0.0f;
+	case SDLK_o:
+	    halfStepMod -= 6;
+	    return 0.0f;
 	default:
 	    return 0.0f;
 	}
