@@ -9,6 +9,7 @@ AudioOscillator::AudioOscillator(int newSampleRate) :
     attack(0.0f),
     currentSample(0.0f),
     decay(0.0f),
+    deletionMarks(),
     frequencyTuning(0.0f),
     noteMap(),
     release(0.0f),
@@ -123,7 +124,12 @@ float AudioOscillator::HandleNotes()
     for (std::pair<const int, note>& n : noteMap)
     {
 	finalMix += (*waveform)[int(n.second.waveformProgress)] * GetADSRModifier(n.second.time) * n.second.force;
+	
 	n.second.waveformProgress = (n.second.waveformProgress + int((waveformSize * (n.second.frequency + frequencyTuning)) / sampleRate)) % waveformSize;
+	if (n.second.waveformProgress < 0)
+	{
+	    n.second.waveformProgress = 0;
+	}
 	if (n.second.time >= attack + decay && n.second.sustains)
 	{
 	    n.second.time = attack + decay;
@@ -132,6 +138,15 @@ float AudioOscillator::HandleNotes()
 	{
 	    n.second.time += 1.0f / sampleRate;
 	}
+	if (n.second.time > attack + decay + release)
+	{
+	    deletionMarks.push_back(n.first);
+	}
     }
+    for (int& element : deletionMarks)
+    {
+	noteMap.erase(element);
+    }
+    deletionMarks.clear();
     return finalMix * amplitude;
 }

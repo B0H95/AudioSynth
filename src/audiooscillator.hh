@@ -45,6 +45,7 @@ private:
     float attack;
     float currentSample;
     float decay;
+    std::vector<int> deletionMarks;
     float frequencyTuning;
     std::map<int, note> noteMap;
     float release;
