@@ -61,10 +61,10 @@ float InputKeyboardNote::GetNoteFromKeypress(SDL_Event e)
 	case SDLK_u:
 	    return 440.00f * pow(a, 14 + halfStepMod);
 	case SDLK_p:
-	    halfStepMod += 6;
+	    halfStepMod += 12;
 	    return 0.0f;
 	case SDLK_o:
-	    halfStepMod -= 6;
+	    halfStepMod -= 12;
 	    return 0.0f;
 	default:
 	    return 0.0f;

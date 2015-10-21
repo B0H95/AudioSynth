@@ -2,6 +2,7 @@
 #define AUDIOOSCILLATOR_H
 
 #include <map>
+#include <math.h>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,7 @@ public:
     void SetAmplitude(float newAmp);
     void SetFrequencyTuning(float newFreqT);
     void SetSampleRate(int newSampleRate);
+    void SetSemitoneTuning(int newSemiT);
     void SetSustain(bool newSustain);
     bool SetWaveform(std::string waveformName, WaveTable& wavetable);
 
@@ -52,6 +54,7 @@ private:
     float release;
     bool sampleComplete;
     int sampleRate;
+    int semitoneTuning;
     bool shallSustain;
     float sustain;
     std::vector<float>* waveform;

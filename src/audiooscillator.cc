@@ -15,6 +15,7 @@ AudioOscillator::AudioOscillator(int newSampleRate) :
     release(0.0f),
     sampleComplete(false),
     sampleRate(newSampleRate),
+    semitoneTuning(0),
     shallSustain(true),
     sustain(1.0f),
     waveform(nullptr),
@@ -59,7 +60,7 @@ void AudioOscillator::Release(int index)
 
 void AudioOscillator::Trigger(float freq, float force, int index)
 {
-    noteMap[index] = {force, freq, shallSustain, 0.0f, 0};
+    noteMap[index] = {force, freq * (float)pow(1.0594630943592953f, semitoneTuning), shallSustain, 0.0f, 0};
 }
 
 bool AudioOscillator::Triggered(int index)
@@ -88,6 +89,11 @@ void AudioOscillator::SetFrequencyTuning(float newFreqT)
 void AudioOscillator::SetSampleRate(int newSampleRate)
 {
     sampleRate = newSampleRate;
+}
+
+void AudioOscillator::SetSemitoneTuning(int newSemiT)
+{
+    semitoneTuning = newSemiT;
 }
 
 void AudioOscillator::SetSustain(bool newSustain)
