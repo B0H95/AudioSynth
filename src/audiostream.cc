@@ -5,6 +5,7 @@ AudioStream::AudioStream() :
     bufferBegin(0),
     bufferEnd(0),
     differenceBeginEnd(0),
+    mixing(false),
     ringBuffer(),
     savedSamples()
 {
@@ -34,6 +35,7 @@ AudioStream::~AudioStream()
 
 void AudioStream::operator<<(float sample)
 {
+    while (mixing) {}
     Sint32 newSample;
     if (sample > -1.0f && sample < 1.0f)
     {
@@ -61,14 +63,16 @@ bool AudioStream::HasSpaceLeft()
 
 void AudioCallback(void *userdata, Uint8 *stream, int len)
 {
-    SDL_memset(stream, 0, len);
     AudioStream* as = (AudioStream*)userdata; 
     if (as->differenceBeginEnd >= len / 4)
     {
+	as->mixing = true;
+	SDL_memset(stream, 0, len);
 	Uint8* sampleptr = reinterpret_cast<Uint8*>(&(as->ringBuffer[as->bufferBegin]));
 	SDL_MixAudio(stream, sampleptr, len, SDL_MIX_MAXVOLUME);
 	as->bufferBegin += len / 4;
 	as->bufferBegin %= BUFFER_SIZE;
 	as->differenceBeginEnd -= len / 4;
+	as->mixing = false;
     }
 }

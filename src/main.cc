@@ -1,3 +1,4 @@
+#include <chrono>
 #include <iostream>
 #include <SDL2/SDL.h>
 
@@ -15,14 +16,14 @@ int main()
 {
     AudioStream as;
 
-    WaveTable wavetable (1000000);
+    WaveTable wavetable (100000);
     cout << "Loading standard waveforms..." << flush;
     wavetable.LoadStandardWaveforms();
     cout << "Complete" << endl;
 
     AudioOscillator osc1 (44100);
-    osc1.SetADSR(0.25f, 0.25f, 0.6f, 0.5f);
-    osc1.SetAmplitude(1.0f);
+    osc1.SetADSR(0.05f, 0.05f, 0.6f, 3.0f);
+    osc1.SetAmplitude(0.33f);
     osc1.SetSustain(false);
     if (!osc1.SetWaveform("pulse", wavetable))
     {
@@ -46,17 +47,18 @@ int main()
     
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
     SDL_RenderSetLogicalSize(renderer, SCREEN_WIDTH, SCREEN_HEIGHT);
-    
+
     bool running = true;
     SDL_Event e;
-    Uint32 beginTime = SDL_GetTicks();
-    float deltaTime = 0.0f;
-    Uint32 endTime = 0;
+    auto beginTime = chrono::high_resolution_clock::now();
+    auto endTime = chrono::high_resolution_clock::now();
+    auto deltaTime = endTime - beginTime;
+    float deltaTimeCount = 0.0f;
 
     while (running)
     {
-	endTime = SDL_GetTicks();
-	deltaTime = 0.001 * (endTime - beginTime);
+	endTime = chrono::high_resolution_clock::now();
+	deltaTime = endTime - beginTime;
 	beginTime = endTime;
 
         while (SDL_PollEvent(&e))
@@ -81,10 +83,12 @@ int main()
 	SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
 	SDL_RenderClear(renderer);
 	SDL_RenderPresent(renderer);
-	for (float i = 0.0f; i <= deltaTime; i += 1.0/44100.0f)
+
+	deltaTimeCount = chrono::duration_cast<chrono::microseconds>(deltaTime).count() / 1000000.0f;
+	for (float i = 0.0f; i < deltaTimeCount; i += 1.0f/44100.0f)
 	{
 	    while (!as.HasSpaceLeft()) {}
-	    as << osc1.GetSample();
+	    as << osc1.GetSample();;
 	    osc1.NextSample();
 	}
     }

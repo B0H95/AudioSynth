@@ -6,7 +6,7 @@
 #include <SDL2/SDL.h>
 
 #define SINT32_MAX 2147483647
-#define BUFFER_SIZE 32768
+#define BUFFER_SIZE 2048
 
 class AudioStream
 {
@@ -24,6 +24,7 @@ private:
     int bufferBegin;
     int bufferEnd;
     int differenceBeginEnd;
+    bool mixing;
     Sint32 ringBuffer[BUFFER_SIZE];
     std::vector<Sint32> savedSamples;
     
