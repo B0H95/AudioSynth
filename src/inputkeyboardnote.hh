@@ -9,7 +9,9 @@ class InputKeyboardNote
 public:
     InputKeyboardNote();
 
+    void DecreaseOctave();
     float GetNoteFromKeypress(SDL_Event e);
+    void IncreaseOctave();
     
 private:
     const float a;

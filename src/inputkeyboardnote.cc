@@ -1,9 +1,14 @@
 #include "inputkeyboardnote.hh"
-
+#include <iostream>
 InputKeyboardNote::InputKeyboardNote() :
     a(1.0594630943592953f),
     halfStepMod(0)
 {
+}
+
+void InputKeyboardNote::DecreaseOctave()
+{
+    halfStepMod -= 12;
 }
 
 float InputKeyboardNote::GetNoteFromKeypress(SDL_Event e)
@@ -30,7 +35,7 @@ float InputKeyboardNote::GetNoteFromKeypress(SDL_Event e)
 	    return 440.00f * pow(a, halfStepMod - 2);
 	case SDLK_h:
 	    return 440.00f * pow(a, halfStepMod - 1);
-	case SDLK_n:
+	case SDLK_n: 
 	    return 440.00f * pow(a, halfStepMod);
 	case SDLK_j:
 	    return 440.00f * pow(a, 1 + halfStepMod);
@@ -60,12 +65,6 @@ float InputKeyboardNote::GetNoteFromKeypress(SDL_Event e)
 	    return 440.00f * pow(a, 13 + halfStepMod);
 	case SDLK_u:
 	    return 440.00f * pow(a, 14 + halfStepMod);
-	case SDLK_p:
-	    halfStepMod += 12;
-	    return 0.0f;
-	case SDLK_o:
-	    halfStepMod -= 12;
-	    return 0.0f;
 	default:
 	    return 0.0f;
 	}
@@ -74,4 +73,9 @@ float InputKeyboardNote::GetNoteFromKeypress(SDL_Event e)
     {
 	return 0.0f;
     }
+}
+
+void InputKeyboardNote::IncreaseOctave()
+{
+    halfStepMod += 12;
 }
