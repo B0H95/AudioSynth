@@ -24,12 +24,16 @@ int main()
     AudioOscillator osc1 (44100);
     osc1.SetADSR(0.05f, 0.05f, 0.6f, 3.0f);
     osc1.SetAmplitude(0.33f);
-    osc1.SetSustain(false);
+    osc1.SetSustain(true);
     if (!osc1.SetWaveform("pulse", wavetable))
     {
 	cout << "Tried to load a non-existing waveform. Closed." << endl;
 	return 1;
     }
+
+    AudioMixer finalmix (44100);
+    finalmix.SetAmplitudeModifier(1.0f);
+    finalmix.SetSource(0, &osc1);
 
     InputKeyboardNote keys;
     
@@ -75,8 +79,15 @@ int main()
 		}
 		else
 		{
-		    osc1.Trigger(keys.GetNoteFromKeypress(e), 1.0f, e.key.keysym.sym);
+		    if (!osc1.Triggered(e.key.keysym.sym))
+		    {
+			osc1.Trigger(keys.GetNoteFromKeypress(e), 1.0f, e.key.keysym.sym);
+		    }
 		}
+	    }
+	    else if (e.type == SDL_KEYUP)
+	    {
+		osc1.Release(e.key.keysym.sym);
 	    }
 	}
 
@@ -88,8 +99,8 @@ int main()
 	for (float i = 0.0f; i < deltaTimeCount; i += 1.0f/44100.0f)
 	{
 	    while (!as.HasSpaceLeft()) {}
-	    as << osc1.GetSample();;
-	    osc1.NextSample();
+	    as << finalmix.GetSample();;
+	    finalmix.NextSample();
 	}
     }
 

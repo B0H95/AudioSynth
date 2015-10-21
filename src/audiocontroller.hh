@@ -8,6 +8,7 @@ public:
 
     virtual void Release(int index) = 0;
     virtual void Trigger(float freq, float force, int index) = 0;
+    virtual bool Triggered(int index) = 0;
 
 private:
 };

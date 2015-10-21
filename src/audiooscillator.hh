@@ -20,6 +20,7 @@ public:
 
     void Release(int index);
     void Trigger(float freq, float force, int index);
+    bool Triggered(int index);
 
     void SetADSR(float a, float d, float s, float r);
     void SetAmplitude(float newAmp);

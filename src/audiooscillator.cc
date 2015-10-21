@@ -62,6 +62,11 @@ void AudioOscillator::Trigger(float freq, float force, int index)
     noteMap[index] = {force, freq, shallSustain, 0.0f, 0};
 }
 
+bool AudioOscillator::Triggered(int index)
+{
+    return (noteMap.find(index) != noteMap.end()) && (noteMap[index].sustains);
+}
+
 void AudioOscillator::SetADSR(float a, float d, float s, float r)
 {
     attack = a;
