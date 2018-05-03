@@ -40,12 +40,17 @@ void adder_generator_set_parameter(void* generator, unsigned int parameter, floa
     }
 }
 
+const char* adder_generator_id() {
+    return "add";
+}
+
 const auto adder_generator_interface {audio_generator_interface{
     adder_generator_render,
     adder_generator_init,
     adder_generator_deinit,
     adder_generator_size,
-    adder_generator_set_parameter
+    adder_generator_set_parameter,
+    adder_generator_id
 }};
 
 }

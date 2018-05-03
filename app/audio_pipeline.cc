@@ -179,6 +179,14 @@ void audio_pipeline::set_buffer(buffer_handle handle, std::vector<float> const& 
     }
 }
 
+void audio_pipeline::reset_all_buffers() {
+    for (auto& buffer : internal->buffers) {
+        for (unsigned int i {0}; i < internal->config.buffer_size; ++i) {
+            buffer[i] = 0.0f;
+        }
+    }
+}
+
 void audio_pipeline::set_generator_input_output (audio_pipeline::generator_handle ghandle, audio_pipeline::buffer_handle bhandle_in, audio_pipeline::buffer_handle bhandle_out) {
     set_generator_input(ghandle, bhandle_in);
     set_generator_output(ghandle, bhandle_out);

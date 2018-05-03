@@ -34,6 +34,7 @@ struct audio_pipeline {
 
     std::vector<float> const& get_buffer(buffer_handle handle) const;
     void set_buffer(buffer_handle handle, std::vector<float> const& new_contents);
+    void reset_all_buffers();
 
     void set_generator_input_output (generator_handle ghandle, buffer_handle bhandle_in, buffer_handle bhandle_out);
     void set_generator_input        (generator_handle ghandle, buffer_handle bhandle);

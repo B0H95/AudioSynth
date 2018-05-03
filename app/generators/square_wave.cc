@@ -55,12 +55,17 @@ void square_wave_generator_set_parameter(void* generator, unsigned int parameter
     }
 }
 
+const char* square_wave_generator_id() {
+    return "square";
+}
+
 const auto square_wave_generator_interface {audio_generator_interface{
     square_wave_generator_render,
     square_wave_generator_init,
     square_wave_generator_deinit,
     square_wave_generator_size,
-    square_wave_generator_set_parameter
+    square_wave_generator_set_parameter,
+    square_wave_generator_id
 }};
 
 }

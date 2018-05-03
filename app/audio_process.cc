@@ -1,15 +1,20 @@
 #include "audio_process.hh"
 #include <algorithm>
+#include <queue>
+#include <tuple>
+#include <mutex>
+#include <limits>
 #include <soundio/soundio.h>
+#include <iterator>
 #include "startup_parameters.hh"
 
 namespace bzzt {
 
 namespace {
 
-auto left_channel {std::vector<float>{}};
-auto right_channel {std::vector<float>{}};
-auto channel_read_pos {static_cast<unsigned int>(0)};
+auto audio_process_instance_count {0};
+auto channel_read_pos {static_cast<unsigned int>(std::numeric_limits<unsigned int>::max())};
+std::vector<float> empty_buffer;
 
 }
 
@@ -19,20 +24,34 @@ struct audio_process::impl {
         audio_device{nullptr},
         audio_stream{nullptr},
         config{256, 44100},
-        pipeline{config} {}
+        pipeline{config},
+        incoming_configuration_callbacks{},
+        incoming_cleanup_callbacks{},
+        config_lock{},
+        buffer_left{},
+        buffer_right{},
+        buffer_left_valid{false},
+        buffer_right_valid{false} {}
 
     SoundIo* audio_instance;
     SoundIoDevice* audio_device;
     SoundIoOutStream* audio_stream;
     audio_config config;
     audio_pipeline pipeline;
+    std::queue<std::tuple<void*, void (*)(audio_process::configurer&, void*)>> incoming_configuration_callbacks;
+    std::queue<std::tuple<void*, void (*)(void*)>> incoming_cleanup_callbacks;
+    std::mutex config_lock;
+    audio_pipeline::buffer_handle buffer_left;
+    audio_pipeline::buffer_handle buffer_right;
+    bool buffer_left_valid;
+    bool buffer_right_valid;
 
     void init() {
         if (!global_audio_enabled()) {
             return;
         }
 
-        create_example_audio_configuration();
+        std::fill_n(std::back_inserter(empty_buffer), config.buffer_size, 0.0f);
 
         audio_instance = soundio_create();
         if (!audio_instance) {
@@ -93,70 +112,38 @@ struct audio_process::impl {
     }
 
     void render() {
-        pipeline.set_buffer(buffer_left, zero_buffer);
-        pipeline.set_buffer(buffer_right, zero_buffer);
+        pipeline.reset_all_buffers();
 
         pipeline.execute();
+
+        while (!config_lock.try_lock()) {}
+        configurer _configurer {this};
+
+        // TODO: Call cleanup callback in a different thread.
+        while (incoming_configuration_callbacks.size() > 0) {
+            auto& configuration_data {incoming_configuration_callbacks.front()};
+            auto& cleanup_data {incoming_cleanup_callbacks.front()};
+            std::get<1>(configuration_data)(_configurer, std::get<0>(configuration_data));
+            std::get<1>(cleanup_data)(std::get<0>(cleanup_data));
+            incoming_configuration_callbacks.pop();
+            incoming_cleanup_callbacks.pop();
+        }
+
+        config_lock.unlock();
     }
 
     std::vector<float> const& get_channel(unsigned int index) const {
-        if (index == 0) {
+        if (index == 0 && buffer_left_valid) {
             return pipeline.get_buffer(buffer_left);
-        } else {
+        } else if (index == 1 && buffer_right_valid) {
             return pipeline.get_buffer(buffer_right);
+        } else {
+            return empty_buffer;
         }
     }
 
     audio_config const& get_audio_config() const {
         return config;
-    }
-
-    // Stuff used for example audio output.
-
-    std::vector<float> zero_buffer {};
-    audio_pipeline::buffer_handle buffer_left {};
-    audio_pipeline::buffer_handle buffer_right {};
-
-    audio_pipeline::generator_handle gen1;
-    audio_pipeline::generator_handle gen2;
-    audio_pipeline::generator_handle gen3;
-    audio_pipeline::generator_handle gen4;
-
-    void create_example_audio_configuration() {
-        // Guard against calling this function multiple times.
-        static auto called {false};
-        if (called) {
-            return;
-        }
-        called = true;
-
-        zero_buffer.resize(config.buffer_size);
-        for (auto& sample : zero_buffer) {
-            sample = 0.0f;
-        }
-
-        buffer_left = pipeline.add_buffer();
-        buffer_right = pipeline.add_buffer();
-
-        gen1 = pipeline.add_generator_back(bzzt::audio_generator_type::SINE_WAVE);
-        gen2 = pipeline.add_generator_back(bzzt::audio_generator_type::SINE_WAVE);
-        gen3 = pipeline.add_generator_back(bzzt::audio_generator_type::SINE_WAVE);
-        gen4 = pipeline.add_generator_back(bzzt::audio_generator_type::SINE_WAVE);
-
-        pipeline.set_generator_parameter(gen1, 1, 440.0f);
-        pipeline.set_generator_parameter(gen2, 1, 880.0f);
-        pipeline.set_generator_parameter(gen3, 1, 440.0f);
-        pipeline.set_generator_parameter(gen4, 1, 880.0f);
-
-        pipeline.set_generator_parameter(gen1, 0, 0.25f);
-        pipeline.set_generator_parameter(gen2, 0, 0.25f);
-        pipeline.set_generator_parameter(gen3, 0, 0.25f);
-        pipeline.set_generator_parameter(gen4, 0, 0.25f);
-
-        pipeline.set_generator_input_output(gen1, buffer_left, buffer_left);
-        pipeline.set_generator_input_output(gen2, buffer_left, buffer_left);
-        pipeline.set_generator_input_output(gen3, buffer_right, buffer_right);
-        pipeline.set_generator_input_output(gen4, buffer_right, buffer_right);
     }
 
 private:
@@ -165,11 +152,9 @@ private:
         auto renderer {static_cast<audio_process::impl*>(stream->userdata)};
 
         auto const& config {renderer->get_audio_config()};
-        if (left_channel.size() != config.buffer_size || right_channel.size() != config.buffer_size) {
-            left_channel.resize(config.buffer_size);
-            right_channel.resize(config.buffer_size);
-            std::fill(std::begin(left_channel), std::end(left_channel), 0.0f);
-            std::fill(std::begin(right_channel), std::end(right_channel), 0.0f);
+
+        // Set initial channel read position on first time running this function.
+        if (channel_read_pos == std::numeric_limits<unsigned int>::max()) {
             channel_read_pos = config.buffer_size;
         }
 
@@ -201,13 +186,52 @@ private:
     }
 };
 
+audio_process::configurer::configurer(audio_process::impl* internals) : audio_process_internals{internals} {}
+
+void audio_process::configurer::set_left_channel_buffer(audio_pipeline::buffer_handle bhandle) {
+    audio_process_internals->buffer_left = bhandle;
+    audio_process_internals->buffer_left_valid = true;
+}
+
+void audio_process::configurer::set_right_channel_buffer(audio_pipeline::buffer_handle bhandle) {
+    audio_process_internals->buffer_right = bhandle;
+    audio_process_internals->buffer_right_valid = true;
+}
+
+audio_pipeline& audio_process::configurer::get_pipeline() const {
+    return audio_process_internals->pipeline;
+}
+
 audio_process::audio_process() : internal{new impl} {
+    audio_process_instance_count += 1;
+    if (audio_process_instance_count > 1) {
+        throw audio_exception {"audio_process constructor failed, an instance has already been created"};
+    }
     internal->init();
 }
 
+audio_process::audio_process(audio_process&& other) : internal{other.internal} {
+    other.internal = nullptr;
+}
+
+audio_process& audio_process::operator=(audio_process&& other) {
+    internal = other.internal;
+    other.internal = nullptr;
+    return *this;
+}
+
 audio_process::~audio_process() {
-    internal->suicide();
-    delete internal;
+    if (internal) {
+        internal->suicide();
+        delete internal;
+    }
+}
+
+void audio_process::configure(void* payload, void (*configure_callback)(audio_process::configurer& process_configurer, void* payload), void (*cleanup_callback)(void* payload)) {
+    while (!internal->config_lock.try_lock()) {}
+    internal->incoming_configuration_callbacks.push({payload, configure_callback});
+    internal->incoming_cleanup_callbacks.push({payload, cleanup_callback});
+    internal->config_lock.unlock();
 }
 
 }

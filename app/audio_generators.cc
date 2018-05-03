@@ -2,6 +2,7 @@
 
 #include <map>
 #include <functional>
+#include <cstring>
 
 namespace bzzt {
 
@@ -18,13 +19,27 @@ void populate_interface_map() {
 template<>
 void populate_interface_map<audio_generator_type::SIZE>() {}
 
-}
-
-audio_generator_interface const& get_audio_generator_interface(audio_generator_type type) {
+void populate_interfaces() {
     if (interfaces.size() == 0) {
         populate_interface_map<audio_generator_type::ADD>(); // NOTE: Always make sure that the audio generator type is the first one in the enum.
     }
+}
+
+}
+
+audio_generator_interface const& get_audio_generator_interface(audio_generator_type type) {
+    populate_interfaces();
     return interfaces[type]();
+}
+
+audio_generator_type get_audio_generator_type_by_id(const char* id) {
+    populate_interfaces();
+    for (auto const& interface: interfaces) {
+        if (!strcmp(id, interface.second().id())) {
+            return interface.first;
+        }
+    }
+    return audio_generator_type::INVALID;
 }
 
 }
