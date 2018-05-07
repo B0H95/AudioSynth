@@ -12,12 +12,19 @@ struct sine_wave_generator {
     float volume;
 };
 
-void sine_wave_generator_render (std::vector<float> const& input, std::vector<float>& output, void* generator, audio_config const& config) {
+const audio_generator_properties sine_wave_properties {
+    "sine",
+    sizeof(sine_wave_generator),
+    1,
+    1
+};
+
+void sine_wave_generator_render (const float* const* input, float* const* output, void* generator, audio_config const& config) {
     auto gen {static_cast<sine_wave_generator*>(generator)};
     for (auto i {static_cast<unsigned int>(0)}; i < config.buffer_size; ++i) {
         auto sine_state {gen->state * 3.1415926535 * 2};
         auto sine_position {sin(sine_state)};
-        output[i] += input[i] + sine_position * gen->volume;
+        output[0][i] = input[0][i] + sine_position * gen->volume;
         gen->state += gen->frequency / static_cast<float>(config.sample_rate);
         gen->state -= (gen->state >= 1.0f) * 1.0f;
     }
@@ -35,10 +42,6 @@ void sine_wave_generator_deinit(void* generator) {
     (void)generator;
 }
 
-unsigned int sine_wave_generator_size() {
-    return sizeof(sine_wave_generator);
-}
-
 void sine_wave_generator_set_parameter(void* generator, unsigned int parameter, float value) {
     auto gen {static_cast<sine_wave_generator*>(generator)};
     switch (parameter) {
@@ -53,17 +56,16 @@ void sine_wave_generator_set_parameter(void* generator, unsigned int parameter, 
     }
 }
 
-const char* sine_wave_generator_id() {
-    return "sine";
+audio_generator_properties const& sine_wave_generator_get_properties() {
+    return sine_wave_properties;
 }
 
 const auto sine_wave_generator_interface {audio_generator_interface{
     sine_wave_generator_render,
     sine_wave_generator_init,
     sine_wave_generator_deinit,
-    sine_wave_generator_size,
     sine_wave_generator_set_parameter,
-    sine_wave_generator_id
+    sine_wave_generator_get_properties
 }};
 
 }

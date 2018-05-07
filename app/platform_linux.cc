@@ -4,6 +4,8 @@
 #include "storage.hh"
 #include <memory>
 
+#include <iostream>
+
 int main(int argc, char** argv) {
     bzzt::consume_command_line_arguments(argc, argv);
 

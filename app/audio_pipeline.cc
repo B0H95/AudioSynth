@@ -2,6 +2,7 @@
 
 #include <map>
 #include <vector>
+#include <array>
 #include <algorithm>
 #include <limits.h>
 
@@ -9,14 +10,17 @@ namespace bzzt {
 
 namespace {
 
+const unsigned int MAX_INPUT_BUFFERS {8};
+const unsigned int MAX_OUTPUT_BUFFERS {8};
+
 struct pipeline_step {
     audio_generator_render_func render_func;
 
     audio_generator_type generator_type;
     unsigned int state_index;
 
-    unsigned int input_buffer_index;
-    unsigned int output_buffer_index;
+    unsigned int inputs;
+    unsigned int outputs;
 };
 
 }
@@ -25,6 +29,9 @@ struct audio_pipeline::impl {
     audio_config config;
 
     std::vector<pipeline_step> pipeline;
+    std::array<std::vector<unsigned int>, MAX_INPUT_BUFFERS> pipeline_input_buffers;
+    std::array<std::vector<unsigned int>, MAX_OUTPUT_BUFFERS> pipeline_output_buffers;
+
     std::map<audio_generator_type, std::vector<char>> state_lists;
     std::map<audio_generator_type, std::vector<bool>> state_lists_usage;
 
@@ -44,7 +51,7 @@ struct audio_pipeline::impl {
         auto& state_list_usage {state_lists_usage[type]};
 
         auto const& generator {get_audio_generator_interface(type)};
-        auto generator_size = generator.size();
+        auto generator_size = generator.get_properties().size;
 
         auto free_position {std::find(std::begin(state_list_usage), std::end(state_list_usage), false)};
         if (free_position != std::end(state_list_usage)) {
@@ -56,8 +63,14 @@ struct audio_pipeline::impl {
                 return {type, UINT_MAX};
             }
             *free_position = true;
-            auto new_step {pipeline_step {generator.render, type, static_cast<unsigned int>(state_pos), UINT_MAX, UINT_MAX}};
+            auto new_step {pipeline_step {generator.render, type, static_cast<unsigned int>(state_pos), generator.get_properties().inputs, generator.get_properties().outputs}};
             pipeline.insert(std::begin(pipeline) + position, new_step);
+            for (auto& input_buffer_list : pipeline_input_buffers) {
+                input_buffer_list.insert(std::begin(input_buffer_list) + position, UINT_MAX);
+            }
+            for (auto& output_buffer_list : pipeline_output_buffers) {
+                output_buffer_list.insert(std::begin(output_buffer_list) + position, UINT_MAX);
+            }
             return {type, state_pos};
         }
 
@@ -73,8 +86,14 @@ struct audio_pipeline::impl {
             return {type, UINT_MAX};
         }
 
-        auto new_step {pipeline_step {generator.render, type, static_cast<unsigned int>(initial_state_list_size), UINT_MAX, UINT_MAX}};
+        auto new_step {pipeline_step {generator.render, type, static_cast<unsigned int>(initial_state_list_size), generator.get_properties().inputs, generator.get_properties().outputs}};
         pipeline.insert(std::begin(pipeline) + position, new_step);
+        for (auto& input_buffer_list : pipeline_input_buffers) {
+            input_buffer_list.insert(std::begin(input_buffer_list) + position, UINT_MAX);
+        }
+        for (auto& output_buffer_list : pipeline_output_buffers) {
+            output_buffer_list.insert(std::begin(output_buffer_list) + position, UINT_MAX);
+        }
         return {type, initial_state_list_size};
     }
 
@@ -93,6 +112,17 @@ struct audio_pipeline::impl {
             pos = pipeline.size();
         }
         pipeline.insert(std::begin(pipeline) + pos, step);
+
+        for (auto& input_buffer_list : pipeline_input_buffers) {
+            auto buffer_id {input_buffer_list[handle_pos]};
+            input_buffer_list.erase(std::begin(input_buffer_list) + handle_pos);
+            input_buffer_list.insert(std::begin(input_buffer_list) + pos, buffer_id);
+        }
+        for (auto& output_buffer_list : pipeline_input_buffers) {
+            auto buffer_id {output_buffer_list[handle_pos]};
+            output_buffer_list.erase(std::begin(output_buffer_list) + handle_pos);
+            output_buffer_list.insert(std::begin(output_buffer_list) + pos, buffer_id);
+        }
     }
 };
 
@@ -138,9 +168,10 @@ void audio_pipeline::move_generator_back(audio_pipeline::generator_handle handle
 }
 
 void audio_pipeline::delete_generator(audio_pipeline::generator_handle handle) {
+    auto generator_position {internal->get_generator_position(handle)};
     auto generator_type {std::get<0>(handle)};
     auto const& generator {get_audio_generator_interface(generator_type)};
-    auto generator_size {generator.size()};
+    auto generator_size {generator.get_properties().size};
     auto generator_index {std::get<1>(handle)};
     internal->state_lists_usage[generator_type][generator_index / generator_size] = false;
     auto state_ptr {static_cast<void*>(&internal->state_lists[generator_type][generator_index])};
@@ -149,6 +180,12 @@ void audio_pipeline::delete_generator(audio_pipeline::generator_handle handle) {
         return step.generator_type == generator_type && step.state_index == generator_index;
     })};
     internal->pipeline.erase(new_end, std::end(internal->pipeline));
+    for (auto& input_buffer_list : internal->pipeline_input_buffers) {
+        input_buffer_list.erase(std::begin(input_buffer_list) + generator_position);
+    }
+    for (auto& output_buffer_list : internal->pipeline_output_buffers) {
+        output_buffer_list.erase(std::begin(output_buffer_list) + generator_position);
+    }
 }
 
 audio_pipeline::buffer_handle audio_pipeline::add_buffer() {
@@ -187,24 +224,21 @@ void audio_pipeline::reset_all_buffers() {
     }
 }
 
-void audio_pipeline::set_generator_input_output (audio_pipeline::generator_handle ghandle, audio_pipeline::buffer_handle bhandle_in, audio_pipeline::buffer_handle bhandle_out) {
-    set_generator_input(ghandle, bhandle_in);
-    set_generator_output(ghandle, bhandle_out);
-}
-
-void audio_pipeline::set_generator_input(audio_pipeline::generator_handle ghandle, audio_pipeline::buffer_handle bhandle) {
-    for (auto& step : internal->pipeline) {
+void audio_pipeline::set_generator_input(audio_pipeline::generator_handle ghandle, unsigned int input_id, audio_pipeline::buffer_handle bhandle) {
+    for (unsigned int i {0}; i < internal->pipeline.size(); ++i) {
+        auto& step {internal->pipeline[i]};
         if (step.state_index == std::get<1>(ghandle) && step.generator_type == std::get<0>(ghandle)) {
-            step.input_buffer_index = bhandle;
+            internal->pipeline_input_buffers[input_id][i] = bhandle;
             return;
         }
     }
 }
 
-void audio_pipeline::set_generator_output(audio_pipeline::generator_handle ghandle, audio_pipeline::buffer_handle bhandle) {
-    for (auto& step : internal->pipeline) {
+void audio_pipeline::set_generator_output(audio_pipeline::generator_handle ghandle, unsigned int output_id, audio_pipeline::buffer_handle bhandle) {
+    for (unsigned int i {0}; i < internal->pipeline.size(); ++i) {
+        auto& step {internal->pipeline[i]};
         if (step.state_index == std::get<1>(ghandle) && step.generator_type == std::get<0>(ghandle)) {
-            step.output_buffer_index = bhandle;
+            internal->pipeline_output_buffers[output_id][i] = bhandle;
             return;
         }
     }
@@ -218,22 +252,35 @@ void audio_pipeline::set_generator_parameter(audio_pipeline::generator_handle gh
 
 void audio_pipeline::remove_buffer(audio_pipeline::buffer_handle handle) {
     internal->buffer_used[handle] = false;
-    for (auto& step : internal->pipeline) {
-        if (step.input_buffer_index == handle) {
-            step.input_buffer_index = UINT_MAX;
+    for (unsigned int i {0}; i < internal->pipeline.size(); ++i) {
+        for (auto& input_buffer_list : internal->pipeline_input_buffers) {
+            if (input_buffer_list[i] == handle) {
+                input_buffer_list[i] = UINT_MAX;
+            }
         }
-        if (step.output_buffer_index == handle) {
-            step.output_buffer_index = UINT_MAX;
+        for (auto& output_buffer_list : internal->pipeline_output_buffers) {
+            if (output_buffer_list[i] == handle) {
+                output_buffer_list[i] = UINT_MAX;
+            }
         }
     }
 }
 
 void audio_pipeline::execute() {
-    for (auto& step : internal->pipeline) {
-        auto& input_buffer {internal->buffers[step.input_buffer_index]};
-        auto& output_buffer {internal->buffers[step.output_buffer_index]};
+    float* input_buffer_list[MAX_INPUT_BUFFERS];
+    float* output_buffer_list[MAX_OUTPUT_BUFFERS];
+    for (unsigned int i {0}; i < internal->pipeline.size(); ++i) {
+        auto& step {internal->pipeline[i]};
+        input_buffer_list[0] = internal->buffers[internal->pipeline_input_buffers[0][i]].data();
+        output_buffer_list[0] = internal->buffers[internal->pipeline_output_buffers[0][i]].data();
+        for (unsigned int j {1}; j < step.inputs; ++j) {
+            input_buffer_list[j] = internal->buffers[internal->pipeline_input_buffers[j][i]].data();
+        }
+        for (unsigned int j {1}; j < step.outputs; ++j) {
+            output_buffer_list[j] = internal->buffers[internal->pipeline_output_buffers[j][i]].data();
+        }
         auto state {static_cast<void*>(&internal->state_lists[step.generator_type][step.state_index])};
-        step.render_func(input_buffer, output_buffer, state, internal->config);
+        step.render_func(input_buffer_list, output_buffer_list, state, internal->config);
     }
 }
 
