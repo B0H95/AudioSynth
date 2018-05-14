@@ -112,8 +112,6 @@ struct audio_process::impl {
     }
 
     void render() {
-        pipeline.reset_all_buffers();
-
         pipeline.execute();
 
         while (!config_lock.try_lock()) {}

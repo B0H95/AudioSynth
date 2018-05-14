@@ -5,22 +5,97 @@
 #include <array>
 #include <algorithm>
 #include <limits.h>
+#include <libtcc.h>
+#include "audio_generator_interface.hh"
 
 namespace bzzt {
 
 namespace {
 
-const unsigned int MAX_INPUT_BUFFERS {8};
-const unsigned int MAX_OUTPUT_BUFFERS {8};
+const unsigned int MAX_INPUT_PARAMETERS {8};
+const unsigned int MAX_OUTPUT_PARAMETERS {8};
 
 struct pipeline_step {
-    audio_generator_render_func render_func;
+    audio_generator_run_func render_func;
 
-    audio_generator_type generator_type;
+    audio_pipeline::generator_type_handle generator_type;
     unsigned int state_index;
 
     unsigned int inputs;
     unsigned int outputs;
+};
+
+struct audio_generator_impl {
+    audio_generator_impl(std::string const& code) {
+        TCCState* tcc_state {tcc_new()};
+        if (!tcc_state) {
+            return;
+        }
+        tcc_set_output_type(tcc_state, TCC_OUTPUT_MEMORY);
+        if (tcc_compile_string(tcc_state, code.c_str()) == -1) {
+            tcc_delete(tcc_state);
+            return;
+        }
+        auto memory_size {tcc_relocate(tcc_state, nullptr)};
+        if (!memory_size) {
+            tcc_delete(tcc_state);
+            return;
+        }
+        build_memory = static_cast<void*>(new char[memory_size]);
+        if (!build_memory) {
+            tcc_delete(tcc_state);
+            return;
+        }
+        tcc_relocate(tcc_state, build_memory);
+
+        generator_impl.run          = (audio_generator_run_func)          (tcc_get_symbol(tcc_state, "run"));
+        generator_impl.init         = (audio_generator_init_func)         (tcc_get_symbol(tcc_state, "init"));
+        generator_impl.deinit       = (audio_generator_deinit_func)       (tcc_get_symbol(tcc_state, "deinit"));
+        generator_impl.id           = (audio_generator_id_func)           (tcc_get_symbol(tcc_state, "id"));
+        generator_impl.size         = (audio_generator_size_func)         (tcc_get_symbol(tcc_state, "size"));
+        generator_impl.input_count  = (audio_generator_input_count_func)  (tcc_get_symbol(tcc_state, "input_count"));
+        generator_impl.output_count = (audio_generator_output_count_func) (tcc_get_symbol(tcc_state, "output_count"));
+
+        tcc_delete(tcc_state);
+    }
+
+    audio_generator_impl(audio_generator_impl const& other) = delete;
+    audio_generator_impl& operator=(audio_generator_impl const& other) = delete;
+
+    audio_generator_impl(audio_generator_impl&& other) {
+        build_memory = other.build_memory;
+        generator_impl = other.generator_impl;
+        other.build_memory = nullptr;
+    }
+
+    audio_generator_impl& operator=(audio_generator_impl&& other) {
+        build_memory = other.build_memory;
+        generator_impl = other.generator_impl;
+        other.build_memory = nullptr;
+        return *this;
+    }
+
+    ~audio_generator_impl() {
+        if (build_memory) {
+            delete[] static_cast<char*>(build_memory);
+        }
+    }
+
+    bool is_valid() const {
+        auto const& x {generator_impl};
+        return x.run && x.init && x.deinit && x.id && x.size && x.input_count && x.output_count;
+    }
+
+    void* build_memory {nullptr};
+    audio_generator_interface generator_impl {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+};
+
+struct parameter_type {
+    bool is_buffer;
+    union {
+        unsigned int buffer_id;
+        float value;
+    };
 };
 
 }
@@ -29,16 +104,27 @@ struct audio_pipeline::impl {
     audio_config config;
 
     std::vector<pipeline_step> pipeline;
-    std::array<std::vector<unsigned int>, MAX_INPUT_BUFFERS> pipeline_input_buffers;
-    std::array<std::vector<unsigned int>, MAX_OUTPUT_BUFFERS> pipeline_output_buffers;
+    std::array<std::vector<parameter_type>, MAX_INPUT_PARAMETERS> pipeline_inputs;
+    std::array<std::vector<parameter_type>, MAX_OUTPUT_PARAMETERS> pipeline_outputs;
 
-    std::map<audio_generator_type, std::vector<char>> state_lists;
-    std::map<audio_generator_type, std::vector<bool>> state_lists_usage;
+    std::map<audio_pipeline::generator_type_handle, std::vector<char>> state_lists;
+    std::map<audio_pipeline::generator_type_handle, std::vector<bool>> state_lists_usage;
 
     std::vector<std::vector<float>> buffers;
     std::vector<bool> buffer_used;
 
-    audio_pipeline::generator_handle add_generator(audio_generator_type type, unsigned int position) {
+    std::vector<audio_generator_impl> generator_impls;
+
+    audio_pipeline::generator_type_handle add_generator_type(std::string const& generator_code) {
+        audio_generator_impl impl {generator_code};
+        if (!impl.is_valid()) {
+            return UINT_MAX;
+        }
+        generator_impls.push_back(std::move(impl));
+        return generator_impls.size() - 1;
+    }
+
+    audio_pipeline::generator_handle add_generator(audio_pipeline::generator_type_handle type, unsigned int position) {
         if (state_lists.find(type) == state_lists.end()) {
             state_lists[type] = std::vector<char>{};
             state_lists[type].reserve(8192);
@@ -47,11 +133,15 @@ struct audio_pipeline::impl {
             state_lists_usage[type].reserve(8192);
         }
 
+        parameter_type new_param;
+        new_param.is_buffer = false;
+        new_param.value = 0.0f;
+
         auto& state_list {state_lists[type]};
         auto& state_list_usage {state_lists_usage[type]};
 
-        auto const& generator {get_audio_generator_interface(type)};
-        auto generator_size = generator.get_properties().size;
+        auto const& generator {generator_impls[type].generator_impl};
+        auto generator_size = generator.size();
 
         auto free_position {std::find(std::begin(state_list_usage), std::end(state_list_usage), false)};
         if (free_position != std::end(state_list_usage)) {
@@ -63,13 +153,13 @@ struct audio_pipeline::impl {
                 return {type, UINT_MAX};
             }
             *free_position = true;
-            auto new_step {pipeline_step {generator.render, type, static_cast<unsigned int>(state_pos), generator.get_properties().inputs, generator.get_properties().outputs}};
+            auto new_step {pipeline_step {generator.run, type, static_cast<unsigned int>(state_pos), generator.input_count(), generator.output_count()}};
             pipeline.insert(std::begin(pipeline) + position, new_step);
-            for (auto& input_buffer_list : pipeline_input_buffers) {
-                input_buffer_list.insert(std::begin(input_buffer_list) + position, UINT_MAX);
+            for (auto& input_buffer_list : pipeline_inputs) {
+                input_buffer_list.insert(std::begin(input_buffer_list) + position, new_param);
             }
-            for (auto& output_buffer_list : pipeline_output_buffers) {
-                output_buffer_list.insert(std::begin(output_buffer_list) + position, UINT_MAX);
+            for (auto& output_buffer_list : pipeline_outputs) {
+                output_buffer_list.insert(std::begin(output_buffer_list) + position, new_param);
             }
             return {type, state_pos};
         }
@@ -86,13 +176,13 @@ struct audio_pipeline::impl {
             return {type, UINT_MAX};
         }
 
-        auto new_step {pipeline_step {generator.render, type, static_cast<unsigned int>(initial_state_list_size), generator.get_properties().inputs, generator.get_properties().outputs}};
+        auto new_step {pipeline_step {generator.run, type, static_cast<unsigned int>(initial_state_list_size), generator.input_count(), generator.output_count()}};
         pipeline.insert(std::begin(pipeline) + position, new_step);
-        for (auto& input_buffer_list : pipeline_input_buffers) {
-            input_buffer_list.insert(std::begin(input_buffer_list) + position, UINT_MAX);
+        for (auto& input_buffer_list : pipeline_inputs) {
+            input_buffer_list.insert(std::begin(input_buffer_list) + position, new_param);
         }
-        for (auto& output_buffer_list : pipeline_output_buffers) {
-            output_buffer_list.insert(std::begin(output_buffer_list) + position, UINT_MAX);
+        for (auto& output_buffer_list : pipeline_outputs) {
+            output_buffer_list.insert(std::begin(output_buffer_list) + position, new_param);
         }
         return {type, initial_state_list_size};
     }
@@ -113,15 +203,15 @@ struct audio_pipeline::impl {
         }
         pipeline.insert(std::begin(pipeline) + pos, step);
 
-        for (auto& input_buffer_list : pipeline_input_buffers) {
-            auto buffer_id {input_buffer_list[handle_pos]};
-            input_buffer_list.erase(std::begin(input_buffer_list) + handle_pos);
-            input_buffer_list.insert(std::begin(input_buffer_list) + pos, buffer_id);
+        for (auto& inputs : pipeline_inputs) {
+            auto param {inputs[handle_pos]};
+            inputs.erase(std::begin(inputs) + handle_pos);
+            inputs.insert(std::begin(inputs) + pos, param);
         }
-        for (auto& output_buffer_list : pipeline_input_buffers) {
-            auto buffer_id {output_buffer_list[handle_pos]};
-            output_buffer_list.erase(std::begin(output_buffer_list) + handle_pos);
-            output_buffer_list.insert(std::begin(output_buffer_list) + pos, buffer_id);
+        for (auto& outputs : pipeline_inputs) {
+            auto param {outputs[handle_pos]};
+            outputs.erase(std::begin(outputs) + handle_pos);
+            outputs.insert(std::begin(outputs) + pos, param);
         }
     }
 };
@@ -135,19 +225,31 @@ audio_pipeline::~audio_pipeline() {
     delete internal;
 }
 
-audio_pipeline::generator_handle audio_pipeline::add_generator_front(audio_generator_type type) {
+audio_pipeline::generator_type_handle audio_pipeline::add_generator_type(std::string const& generator_code) {
+    return internal->add_generator_type(generator_code);
+}
+
+bool audio_pipeline::generator_type_is_valid(audio_pipeline::generator_type_handle handle) const {
+    return handle != UINT_MAX;
+}
+
+std::string audio_pipeline::get_generator_id(audio_pipeline::generator_type_handle handle) const {
+    return internal->generator_impls[handle].generator_impl.id();
+}
+
+audio_pipeline::generator_handle audio_pipeline::add_generator_front(audio_pipeline::generator_type_handle type) {
     return internal->add_generator(type, 0);
 }
 
-audio_pipeline::generator_handle audio_pipeline::add_generator_before(audio_generator_type type, audio_pipeline::generator_handle ghandle) {
+audio_pipeline::generator_handle audio_pipeline::add_generator_before(audio_pipeline::generator_type_handle type, audio_pipeline::generator_handle ghandle) {
     return internal->add_generator(type, internal->get_generator_position(ghandle));
 }
 
-audio_pipeline::generator_handle audio_pipeline::add_generator_after(audio_generator_type type, audio_pipeline::generator_handle ghandle) {
+audio_pipeline::generator_handle audio_pipeline::add_generator_after(audio_pipeline::generator_type_handle type, audio_pipeline::generator_handle ghandle) {
     return internal->add_generator(type, internal->get_generator_position(ghandle) + 1);
 }
 
-audio_pipeline::generator_handle audio_pipeline::add_generator_back(audio_generator_type type) {
+audio_pipeline::generator_handle audio_pipeline::add_generator_back(audio_pipeline::generator_type_handle type) {
     return internal->add_generator(type, internal->pipeline.size());
 }
 
@@ -170,8 +272,8 @@ void audio_pipeline::move_generator_back(audio_pipeline::generator_handle handle
 void audio_pipeline::delete_generator(audio_pipeline::generator_handle handle) {
     auto generator_position {internal->get_generator_position(handle)};
     auto generator_type {std::get<0>(handle)};
-    auto const& generator {get_audio_generator_interface(generator_type)};
-    auto generator_size {generator.get_properties().size};
+    auto const& generator {internal->generator_impls[generator_type].generator_impl};
+    auto generator_size {generator.size()};
     auto generator_index {std::get<1>(handle)};
     internal->state_lists_usage[generator_type][generator_index / generator_size] = false;
     auto state_ptr {static_cast<void*>(&internal->state_lists[generator_type][generator_index])};
@@ -180,11 +282,11 @@ void audio_pipeline::delete_generator(audio_pipeline::generator_handle handle) {
         return step.generator_type == generator_type && step.state_index == generator_index;
     })};
     internal->pipeline.erase(new_end, std::end(internal->pipeline));
-    for (auto& input_buffer_list : internal->pipeline_input_buffers) {
-        input_buffer_list.erase(std::begin(input_buffer_list) + generator_position);
+    for (auto& inputs : internal->pipeline_inputs) {
+        inputs.erase(std::begin(inputs) + generator_position);
     }
-    for (auto& output_buffer_list : internal->pipeline_output_buffers) {
-        output_buffer_list.erase(std::begin(output_buffer_list) + generator_position);
+    for (auto& outputs : internal->pipeline_outputs) {
+        outputs.erase(std::begin(outputs) + generator_position);
     }
 }
 
@@ -216,71 +318,115 @@ void audio_pipeline::set_buffer(buffer_handle handle, std::vector<float> const& 
     }
 }
 
-void audio_pipeline::reset_all_buffers() {
-    for (auto& buffer : internal->buffers) {
-        for (unsigned int i {0}; i < internal->config.buffer_size; ++i) {
-            buffer[i] = 0.0f;
-        }
+void audio_pipeline::set_generator_input_value(audio_pipeline::generator_handle ghandle, unsigned int input_id, float value) {
+    if (input_id >= MAX_INPUT_PARAMETERS) {
+        return;
     }
-}
-
-void audio_pipeline::set_generator_input(audio_pipeline::generator_handle ghandle, unsigned int input_id, audio_pipeline::buffer_handle bhandle) {
     for (unsigned int i {0}; i < internal->pipeline.size(); ++i) {
         auto& step {internal->pipeline[i]};
         if (step.state_index == std::get<1>(ghandle) && step.generator_type == std::get<0>(ghandle)) {
-            internal->pipeline_input_buffers[input_id][i] = bhandle;
+            auto& param {internal->pipeline_inputs[input_id][i]};
+            param.value = value;
+            param.is_buffer = false;
             return;
         }
     }
 }
 
-void audio_pipeline::set_generator_output(audio_pipeline::generator_handle ghandle, unsigned int output_id, audio_pipeline::buffer_handle bhandle) {
+void audio_pipeline::set_generator_input_buffer(audio_pipeline::generator_handle ghandle, unsigned int input_id, audio_pipeline::buffer_handle bhandle) {
+    if (input_id >= MAX_INPUT_PARAMETERS) {
+        return;
+    }
     for (unsigned int i {0}; i < internal->pipeline.size(); ++i) {
         auto& step {internal->pipeline[i]};
         if (step.state_index == std::get<1>(ghandle) && step.generator_type == std::get<0>(ghandle)) {
-            internal->pipeline_output_buffers[output_id][i] = bhandle;
+            auto& param {internal->pipeline_inputs[input_id][i]};
+            param.buffer_id = bhandle;
+            param.is_buffer = true;
             return;
         }
     }
 }
 
-void audio_pipeline::set_generator_parameter(audio_pipeline::generator_handle ghandle, unsigned int parameter, float value) {
-    auto const& generator {get_audio_generator_interface(std::get<0>(ghandle))};
-    auto state_ptr = static_cast<void*>(&(internal->state_lists[std::get<0>(ghandle)][std::get<1>(ghandle)]));
-    generator.set_parameter(state_ptr, parameter, value);
+void audio_pipeline::set_generator_output_value(audio_pipeline::generator_handle ghandle, unsigned int output_id, float value) {
+    if (output_id >= MAX_OUTPUT_PARAMETERS) {
+        return;
+    }
+    for (unsigned int i {0}; i < internal->pipeline.size(); ++i) {
+        auto& step {internal->pipeline[i]};
+        if (step.state_index == std::get<1>(ghandle) && step.generator_type == std::get<0>(ghandle)) {
+            auto& param {internal->pipeline_outputs[output_id][i]};
+            param.value = value;
+            param.is_buffer = false;
+            return;
+        }
+    }
+}
+
+void audio_pipeline::set_generator_output_buffer(audio_pipeline::generator_handle ghandle, unsigned int output_id, audio_pipeline::buffer_handle bhandle) {
+    if (output_id >= MAX_OUTPUT_PARAMETERS) {
+        return;
+    }
+    for (unsigned int i {0}; i < internal->pipeline.size(); ++i) {
+        auto& step {internal->pipeline[i]};
+        if (step.state_index == std::get<1>(ghandle) && step.generator_type == std::get<0>(ghandle)) {
+            auto& param {internal->pipeline_outputs[output_id][i]};
+            param.buffer_id = bhandle;
+            param.is_buffer = true;
+            return;
+        }
+    }
 }
 
 void audio_pipeline::remove_buffer(audio_pipeline::buffer_handle handle) {
     internal->buffer_used[handle] = false;
     for (unsigned int i {0}; i < internal->pipeline.size(); ++i) {
-        for (auto& input_buffer_list : internal->pipeline_input_buffers) {
-            if (input_buffer_list[i] == handle) {
-                input_buffer_list[i] = UINT_MAX;
+        for (auto& inputs : internal->pipeline_inputs) {
+            auto& param {inputs[i]};
+            if (param.is_buffer && param.buffer_id == handle) {
+                param.is_buffer = false;
+                param.value = 0.0f;
             }
         }
-        for (auto& output_buffer_list : internal->pipeline_output_buffers) {
-            if (output_buffer_list[i] == handle) {
-                output_buffer_list[i] = UINT_MAX;
+        for (auto& outputs : internal->pipeline_outputs) {
+            auto& param {outputs[i]};
+            if (param.is_buffer && param.buffer_id == handle) {
+                param.is_buffer = false;
+                param.value = 0.0f;
             }
         }
     }
 }
 
 void audio_pipeline::execute() {
-    float* input_buffer_list[MAX_INPUT_BUFFERS];
-    float* output_buffer_list[MAX_OUTPUT_BUFFERS];
+    float inputs[MAX_INPUT_PARAMETERS];
+    float outputs[MAX_OUTPUT_PARAMETERS];
     for (unsigned int i {0}; i < internal->pipeline.size(); ++i) {
+
         auto& step {internal->pipeline[i]};
-        input_buffer_list[0] = internal->buffers[internal->pipeline_input_buffers[0][i]].data();
-        output_buffer_list[0] = internal->buffers[internal->pipeline_output_buffers[0][i]].data();
-        for (unsigned int j {1}; j < step.inputs; ++j) {
-            input_buffer_list[j] = internal->buffers[internal->pipeline_input_buffers[j][i]].data();
-        }
-        for (unsigned int j {1}; j < step.outputs; ++j) {
-            output_buffer_list[j] = internal->buffers[internal->pipeline_output_buffers[j][i]].data();
-        }
         auto state {static_cast<void*>(&internal->state_lists[step.generator_type][step.state_index])};
-        step.render_func(input_buffer_list, output_buffer_list, state, internal->config);
+
+        for (unsigned int sample_id {0}; sample_id < internal->config.buffer_size; ++sample_id) {
+            for (unsigned int in {0}; in < step.inputs; ++in) {
+                auto& inparam {internal->pipeline_inputs[in][i]};
+                if (inparam.is_buffer) {
+                    inputs[in] = internal->buffers[inparam.buffer_id][sample_id];
+                } else {
+                    inputs[in] = inparam.value;
+                }
+            }
+
+            step.render_func(inputs, outputs, state, internal->config.sample_rate);
+
+            for (unsigned int out {0}; out < step.outputs; ++out) {
+                auto& outparam {internal->pipeline_outputs[out][i]};
+                if (outparam.is_buffer) {
+                    internal->buffers[outparam.buffer_id][sample_id] = outputs[out];
+                } else {
+                    // TODO: It does not make sense to not write to a buffer. Please fix this.
+                }
+            }
+        }
     }
 }
 

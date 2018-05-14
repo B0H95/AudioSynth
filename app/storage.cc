@@ -13,11 +13,22 @@ namespace bzzt {
 
 namespace {
 
+struct generator_section_step {
+    std::string generator_code;
+};
+
+struct pipeline_step_parameter {
+    bool is_buffer;
+    union {
+        unsigned int buffer_id;
+        float value;
+    };
+};
+
 struct pipeline_section_step {
     std::string generator_type;
-    std::vector<unsigned int> input_buffer_ids;
-    std::vector<unsigned int> output_buffer_ids;
-    std::vector<float> parameters;
+    std::vector<pipeline_step_parameter> input_parameters;
+    std::vector<pipeline_step_parameter> output_parameters;
 };
 
 struct output_section_step {
@@ -26,9 +37,11 @@ struct output_section_step {
 };
 
 struct pipeline_config_payload {
+    std::vector<generator_section_step> generator_section;
     std::vector<pipeline_section_step> pipeline_section;
     std::vector<output_section_step> output_section;
     std::map<unsigned int, audio_pipeline::buffer_handle> buffer_id_to_handle;
+    std::map<std::string, audio_pipeline::generator_type_handle> generator_type_id_to_impl;
 };
 
 const auto FILE_MAX_BYTES {static_cast<unsigned int>(1024*1024)};
@@ -81,63 +94,83 @@ std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_pro
     }
 
     auto sections {parse_sections(file_contents)};
-    if (!section_exists(sections, "pipeline") || !section_exists(sections, "output")) {
+    if (!section_exists(sections, "pipeline") || !section_exists(sections, "output") || !section_exists(sections, "generators")) {
         return aprocess;
     }
 
-    auto const& pipeline_section_raw {get_section(sections, "pipeline")};
-    auto const& output_section_raw {get_section(sections, "output")};
+    auto const& generator_section_raw {get_section(sections, "generators")};
+    auto const& pipeline_section_raw  {get_section(sections, "pipeline")};
+    auto const& output_section_raw    {get_section(sections, "output")};
 
-    auto pipeline_lines {parse_lines(pipeline_section_raw)};
-    auto output_lines {parse_lines(output_section_raw)};
+    auto generator_lines {parse_lines(generator_section_raw)};
+    auto pipeline_lines  {parse_lines(pipeline_section_raw)};
+    auto output_lines    {parse_lines(output_section_raw)};
 
     // =====================================================================
     // ======================= Parse file contents =========================
     // =====================================================================
     auto payload {new pipeline_config_payload};
+    std::for_each(std::begin(generator_lines), std::end(generator_lines), [&](std::string const& line) {
+        if (line.size() <= 2) {
+            return;
+        }
+        auto code {get_raw_file_contents(line.substr(1, line.size() - 2))};
+        if (code.size() == 0) {
+            return;
+        }
+        payload->generator_section.push_back({code});
+    });
 
     std::for_each(std::begin(pipeline_lines), std::end(pipeline_lines), [&](std::string const& line) {
         auto splited_line {parse_whitespace_separated_values(line)};
 
-        // Line format: <generator type> <input buffer id> <output buffer id> <parameters>.
-        if (splited_line.size() != 4) {
+        // Line format: <generator type> <input parameters> <output parameters>.
+        if (splited_line.size() != 3) {
             return;
         }
 
-        auto& generator_type       {splited_line[0]};
-        auto& input_buffers_raw  {splited_line[1]};
-        auto& output_buffers_raw {splited_line[2]};
-        auto& parameters_raw       {splited_line[3]};
+        auto& generator_type        {splited_line[0]};
+        auto& input_parameters_raw  {splited_line[1]};
+        auto& output_parameters_raw {splited_line[2]};
 
-        // These three values should be surrounded by parentheses, so check size accordingly.
-        if (input_buffers_raw.size() < 3 || output_buffers_raw.size() < 3 || parameters_raw.size() < 3) {
+        // These two values should be surrounded by parentheses, so check size accordingly.
+        if (input_parameters_raw.size() < 3 || output_parameters_raw.size() < 3) {
             return;
         }
 
         // Remove parentheses.
-        input_buffers_raw  = input_buffers_raw.substr  (1, input_buffers_raw.size()  - 2);
-        output_buffers_raw = output_buffers_raw.substr (1, output_buffers_raw.size() - 2);
-        parameters_raw     = parameters_raw.substr     (1, parameters_raw.size()     - 2);
+        input_parameters_raw  = input_parameters_raw.substr  (1, input_parameters_raw.size()  - 2);
+        output_parameters_raw = output_parameters_raw.substr (1, output_parameters_raw.size() - 2);
 
         payload->pipeline_section.push_back({});
         payload->pipeline_section.back().generator_type = generator_type;
 
-        auto input_buffer_list_raw {parse_whitespace_separated_values(input_buffers_raw)};
-        auto& input_buffer_list {payload->pipeline_section.back().input_buffer_ids};
-        std::transform(std::begin(input_buffer_list_raw), std::end(input_buffer_list_raw), std::back_inserter(input_buffer_list), [](std::string const& input_buffer_id_raw){
-            return parse_float(input_buffer_id_raw);
+        auto input_parameter_list_raw {parse_whitespace_separated_values(input_parameters_raw)};
+        auto& input_parameter_list {payload->pipeline_section.back().input_parameters};
+        std::transform(std::begin(input_parameter_list_raw), std::end(input_parameter_list_raw), std::back_inserter(input_parameter_list), [](std::string const& input_parameter_raw){
+            pipeline_step_parameter param;
+            if (input_parameter_raw[0] == '#' && input_parameter_raw.size() >= 2) {
+                param.is_buffer = true;
+                param.buffer_id = parse_unsigned_int(input_parameter_raw.substr(1));
+            } else {
+                param.is_buffer = false;
+                param.value = parse_float(input_parameter_raw);
+            }
+            return param;
         });
 
-        auto output_buffer_list_raw {parse_whitespace_separated_values(output_buffers_raw)};
-        auto& output_buffer_list {payload->pipeline_section.back().output_buffer_ids};
-        std::transform(std::begin(output_buffer_list_raw), std::end(output_buffer_list_raw), std::back_inserter(output_buffer_list), [](std::string const& output_buffer_id_raw){
-            return parse_float(output_buffer_id_raw);
-        });
-
-        auto parameter_list_raw {parse_whitespace_separated_values(parameters_raw)};
-        auto& parameter_list {payload->pipeline_section.back().parameters};
-        std::transform(std::begin(parameter_list_raw), std::end(parameter_list_raw), std::back_inserter(parameter_list), [](std::string const& parameter_raw){
-            return parse_float(parameter_raw);
+        auto output_buffer_list_raw {parse_whitespace_separated_values(output_parameters_raw)};
+        auto& output_buffer_list {payload->pipeline_section.back().output_parameters};
+        std::transform(std::begin(output_buffer_list_raw), std::end(output_buffer_list_raw), std::back_inserter(output_buffer_list), [](std::string const& output_parameter_raw){
+            pipeline_step_parameter param;
+            if (output_parameter_raw[0] == '#' && output_parameter_raw.size() >= 2) {
+                param.is_buffer = true;
+                param.buffer_id = parse_unsigned_int(output_parameter_raw.substr(1));
+            } else {
+                param.is_buffer = false;
+                param.value = parse_float(output_parameter_raw);
+            }
+            return param;
         });
     });
 
@@ -158,11 +191,15 @@ std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_pro
     });
 
     std::for_each(std::begin(payload->pipeline_section), std::end(payload->pipeline_section), [&](pipeline_section_step const& step){
-        for (auto const& id: step.input_buffer_ids) {
-            payload->buffer_id_to_handle[id] = {};
+        for (auto const& param: step.input_parameters) {
+            if (param.is_buffer) {
+                payload->buffer_id_to_handle[param.buffer_id] = {};
+            }
         }
-        for (auto const& id: step.output_buffer_ids) {
-            payload->buffer_id_to_handle[id] = {};
+        for (auto const& param: step.output_parameters) {
+            if (param.is_buffer) {
+                payload->buffer_id_to_handle[param.buffer_id] = {};
+            }
         }
     });
 
@@ -177,33 +214,43 @@ std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_pro
             id_to_handle.second = pipeline.add_buffer();
         }
 
-        for (auto const& step : payload->pipeline_section) {
-            auto generator_type {get_audio_generator_type_by_id(step.generator_type.c_str())};
-            if (generator_type == audio_generator_type::INVALID) {
-                continue;
+        for (auto const& generator_type : payload->generator_section) {
+            auto handle {pipeline.add_generator_type(generator_type.generator_code)};
+            if (pipeline.generator_type_is_valid(handle)) {
+                auto type_id {pipeline.get_generator_id(handle)};
+                payload->generator_type_id_to_impl[type_id] = handle;
             }
+        }
 
-            auto const& generator_interface {get_audio_generator_interface(generator_type)};
-            auto input_buffer_count {generator_interface.get_properties().inputs};
-            auto output_buffer_count {generator_interface.get_properties().outputs};
-            if (step.input_buffer_ids.size() != input_buffer_count || step.output_buffer_ids.size() != output_buffer_count) {
+        for (auto const& step : payload->pipeline_section) {
+            auto it {payload->generator_type_id_to_impl.find(step.generator_type)};
+            if (it == payload->generator_type_id_to_impl.end()) {
                 continue;
             }
+            auto generator_type {it->second};
+
+            // TODO: Check if input and output parameter count is aligned with the generator type.
 
             auto generator = pipeline.add_generator_back(generator_type);
 
-            for (unsigned int i {0}; i < step.input_buffer_ids.size(); ++i) {
-                auto input_buffer {payload->buffer_id_to_handle[step.input_buffer_ids[i]]};
-                pipeline.set_generator_input(generator, i, input_buffer);
+            for (unsigned int i {0}; i < step.input_parameters.size(); ++i) {
+                auto input_param {step.input_parameters[i]};
+                if (input_param.is_buffer) {
+                    auto buffer_handle {payload->buffer_id_to_handle[input_param.buffer_id]};
+                    pipeline.set_generator_input_buffer(generator, i, buffer_handle);
+                } else {
+                    pipeline.set_generator_input_value(generator, i, input_param.value);
+                }
             }
 
-            for (unsigned int i {0}; i < step.output_buffer_ids.size(); ++i) {
-                auto output_buffer {payload->buffer_id_to_handle[step.output_buffer_ids[i]]};
-                pipeline.set_generator_output(generator, i, output_buffer);
-            }
-
-            for (unsigned int i {0}; i < step.parameters.size(); ++i) {
-                pipeline.set_generator_parameter(generator, i, step.parameters[i]);
+            for (unsigned int i {0}; i < step.output_parameters.size(); ++i) {
+                auto output_param {step.output_parameters[i]};
+                if (output_param.is_buffer) {
+                    auto buffer_handle {payload->buffer_id_to_handle[output_param.buffer_id]};
+                    pipeline.set_generator_output_buffer(generator, i, buffer_handle);
+                } else {
+                    pipeline.set_generator_output_value(generator, i, output_param.value);
+                }
             }
         }
 
