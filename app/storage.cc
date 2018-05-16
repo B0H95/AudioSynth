@@ -17,7 +17,7 @@ struct generator_section_step {
     std::string generator_code;
 };
 
-struct pipeline_step_parameter {
+struct pipeline_step_input_parameter {
     bool is_buffer;
     union {
         unsigned int buffer_id;
@@ -25,10 +25,14 @@ struct pipeline_step_parameter {
     };
 };
 
+struct pipeline_step_output_parameter {
+    unsigned int buffer_id;
+};
+
 struct pipeline_section_step {
     std::string generator_type;
-    std::vector<pipeline_step_parameter> input_parameters;
-    std::vector<pipeline_step_parameter> output_parameters;
+    std::vector<pipeline_step_input_parameter> input_parameters;
+    std::vector<pipeline_step_output_parameter> output_parameters;
 };
 
 struct output_section_step {
@@ -148,7 +152,7 @@ std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_pro
         auto input_parameter_list_raw {parse_whitespace_separated_values(input_parameters_raw)};
         auto& input_parameter_list {payload->pipeline_section.back().input_parameters};
         std::transform(std::begin(input_parameter_list_raw), std::end(input_parameter_list_raw), std::back_inserter(input_parameter_list), [](std::string const& input_parameter_raw){
-            pipeline_step_parameter param;
+            pipeline_step_input_parameter param;
             if (input_parameter_raw[0] == '#' && input_parameter_raw.size() >= 2) {
                 param.is_buffer = true;
                 param.buffer_id = parse_unsigned_int(input_parameter_raw.substr(1));
@@ -161,16 +165,12 @@ std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_pro
 
         auto output_buffer_list_raw {parse_whitespace_separated_values(output_parameters_raw)};
         auto& output_buffer_list {payload->pipeline_section.back().output_parameters};
-        std::transform(std::begin(output_buffer_list_raw), std::end(output_buffer_list_raw), std::back_inserter(output_buffer_list), [](std::string const& output_parameter_raw){
-            pipeline_step_parameter param;
+        std::for_each(std::begin(output_buffer_list_raw), std::end(output_buffer_list_raw), [&](std::string const& output_parameter_raw){
+            pipeline_step_output_parameter param;
             if (output_parameter_raw[0] == '#' && output_parameter_raw.size() >= 2) {
-                param.is_buffer = true;
                 param.buffer_id = parse_unsigned_int(output_parameter_raw.substr(1));
-            } else {
-                param.is_buffer = false;
-                param.value = parse_float(output_parameter_raw);
+                output_buffer_list.push_back(param);
             }
-            return param;
         });
     });
 
@@ -197,9 +197,7 @@ std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_pro
             }
         }
         for (auto const& param: step.output_parameters) {
-            if (param.is_buffer) {
-                payload->buffer_id_to_handle[param.buffer_id] = {};
-            }
+            payload->buffer_id_to_handle[param.buffer_id] = {};
         }
     });
 
@@ -217,7 +215,8 @@ std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_pro
         for (auto const& generator_type : payload->generator_section) {
             auto handle {pipeline.add_generator_type(generator_type.generator_code)};
             if (pipeline.generator_type_is_valid(handle)) {
-                auto type_id {pipeline.get_generator_id(handle)};
+                auto const& generator_interface {pipeline.get_generator_interface(handle)};
+                auto type_id {generator_interface.id()};
                 payload->generator_type_id_to_impl[type_id] = handle;
             }
         }
@@ -229,7 +228,10 @@ std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_pro
             }
             auto generator_type {it->second};
 
-            // TODO: Check if input and output parameter count is aligned with the generator type.
+            auto const& generator_interface {pipeline.get_generator_interface(it->second)};
+            if (step.input_parameters.size() != generator_interface.input_count() || step.output_parameters.size() != generator_interface.output_count()) {
+                continue;
+            }
 
             auto generator = pipeline.add_generator_back(generator_type);
 
@@ -245,12 +247,8 @@ std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_pro
 
             for (unsigned int i {0}; i < step.output_parameters.size(); ++i) {
                 auto output_param {step.output_parameters[i]};
-                if (output_param.is_buffer) {
-                    auto buffer_handle {payload->buffer_id_to_handle[output_param.buffer_id]};
-                    pipeline.set_generator_output_buffer(generator, i, buffer_handle);
-                } else {
-                    pipeline.set_generator_output_value(generator, i, output_param.value);
-                }
+                auto buffer_handle {payload->buffer_id_to_handle[output_param.buffer_id]};
+                pipeline.set_generator_output_buffer(generator, i, buffer_handle);
             }
         }
 

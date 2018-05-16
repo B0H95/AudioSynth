@@ -4,6 +4,7 @@
 #include <tuple>
 #include <string>
 #include "audio_config.hh"
+#include "audio_generator_interface.hh"
 
 namespace bzzt {
 
@@ -21,7 +22,7 @@ struct audio_pipeline {
 
     generator_type_handle add_generator_type(std::string const& generator_code);
     bool generator_type_is_valid(generator_type_handle handle) const;
-    std::string get_generator_id(generator_type_handle handle) const;
+    audio_generator_interface const& get_generator_interface(generator_type_handle handle) const;
 
     generator_handle add_generator_front  (generator_type_handle type);
     generator_handle add_generator_before (generator_type_handle type, generator_handle ghandle);
@@ -42,7 +43,6 @@ struct audio_pipeline {
 
     void set_generator_input_value   (generator_handle ghandle, unsigned int input_id,  float value);
     void set_generator_input_buffer  (generator_handle ghandle, unsigned int input_id,  buffer_handle bhandle);
-    void set_generator_output_value  (generator_handle ghandle, unsigned int output_id, float value);
     void set_generator_output_buffer (generator_handle ghandle, unsigned int output_id, buffer_handle bhandle);
 
     void remove_buffer(buffer_handle handle);
