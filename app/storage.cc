@@ -91,14 +91,28 @@ std::string const& get_section(std::vector<std::string> const& parsed_sections, 
 
 }
 
-std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_process> aprocess, std::string const& path) {
+std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_process> aprocess, std::string const& path, message_box& msg_box) {
     auto file_contents {get_raw_file_contents(path)};
     if (file_contents.size() == 0) {
+        msg_box.push_error("Pipeline config file " + path + " could not be loaded");
         return aprocess;
     }
 
     auto sections {parse_sections(file_contents)};
-    if (!section_exists(sections, "pipeline") || !section_exists(sections, "output") || !section_exists(sections, "generators")) {
+    auto bad_sections {false};
+    if (!section_exists(sections, "pipeline")) {
+        msg_box.push_error("Pipeline section not specified in " + path);
+        bad_sections = true;
+    }
+    if (!section_exists(sections, "output")) {
+        msg_box.push_error("Output section not specified in " + path);
+        bad_sections = true;
+    }
+    if (!section_exists(sections, "generators")) {
+        msg_box.push_error("Generator section not specified in " + path);
+        bad_sections = true;
+    }
+    if (bad_sections) {
         return aprocess;
     }
 
@@ -115,21 +129,27 @@ std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_pro
     // =====================================================================
     auto payload {new pipeline_config_payload};
     std::for_each(std::begin(generator_lines), std::end(generator_lines), [&](std::string const& line) {
-        if (line.size() <= 2) {
+        if (line.size() <= 2 || line[0] != '"' || line[line.size() - 1] != '"') {
+            msg_box.push_error("Generator filenames need to be enclosed in double-quotes");
             return;
         }
-        auto code {get_raw_file_contents(line.substr(1, line.size() - 2))};
+        auto filename {line.substr(1, line.size() - 2)};
+        auto code {get_raw_file_contents(filename)};
         if (code.size() == 0) {
+            msg_box.push_error("Generator file " + filename + " could not be loaded");
             return;
         }
         payload->generator_section.push_back({code});
     });
 
+    auto current_line {0};
     std::for_each(std::begin(pipeline_lines), std::end(pipeline_lines), [&](std::string const& line) {
+        ++current_line;
         auto splited_line {parse_whitespace_separated_values(line)};
 
         // Line format: <generator type> <input parameters> <output parameters>.
         if (splited_line.size() != 3) {
+            msg_box.push_error("At pipeline step " + std::to_string(current_line) + ": Required parameters not specified (generator name, inputs and outputs)");
             return;
         }
 
@@ -138,7 +158,16 @@ std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_pro
         auto& output_parameters_raw {splited_line[2]};
 
         // These two values should be surrounded by parentheses, so check size accordingly.
-        if (input_parameters_raw.size() < 3 || output_parameters_raw.size() < 3) {
+        auto bad_inputs_outputs {false};
+        if (input_parameters_raw.size() < 3 || input_parameters_raw[0] != '(' || input_parameters_raw[input_parameters_raw.size() - 1] != ')') {
+            msg_box.push_error("At pipeline step " + std::to_string(current_line) + ": Inputs need to be surrounded by parentheses");
+            bad_inputs_outputs = true;
+        }
+        if (output_parameters_raw.size() < 3 || output_parameters_raw[0] != '(' || output_parameters_raw[output_parameters_raw.size() - 1] != ')') {
+            msg_box.push_error("At pipeline step " + std::to_string(current_line) + ": Outputs need to be surrounded by parentheses");
+            bad_inputs_outputs = true;
+        }
+        if (bad_inputs_outputs) {
             return;
         }
 
@@ -179,6 +208,7 @@ std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_pro
 
         // Line format: <channel name> <buffer id>
         if (splited_line.size() != 2) {
+            msg_box.push_error("Outputs need to be defined by a channel name and a buffer id");
             return;
         }
 
@@ -189,6 +219,11 @@ std::unique_ptr<audio_process> load_pipeline_from_file(std::unique_ptr<audio_pro
 
         payload->output_section.push_back({channel_name, buffer_id});
     });
+
+    if (msg_box.length() > 0) {
+        delete payload;
+        return aprocess;
+    }
 
     std::for_each(std::begin(payload->pipeline_section), std::end(payload->pipeline_section), [&](pipeline_section_step const& step){
         for (auto const& param: step.input_parameters) {
