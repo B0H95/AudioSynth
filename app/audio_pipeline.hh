@@ -45,7 +45,7 @@ struct audio_pipeline {
     void set_generator_input_buffer  (generator_handle ghandle, unsigned int input_id,  buffer_handle bhandle);
     void set_generator_output_buffer (generator_handle ghandle, unsigned int output_id, buffer_handle bhandle);
 
-    void remove_buffer(buffer_handle handle);
+    void delete_buffer(buffer_handle handle);
 
     void execute();
 

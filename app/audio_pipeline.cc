@@ -381,7 +381,7 @@ void audio_pipeline::set_generator_output_buffer(audio_pipeline::generator_handl
     }
 }
 
-void audio_pipeline::remove_buffer(audio_pipeline::buffer_handle handle) {
+void audio_pipeline::delete_buffer(audio_pipeline::buffer_handle handle) {
     internal->buffers_occupied[handle] = false;
     for (unsigned int i {0}; i < internal->pipeline.size(); ++i) {
         for (auto& inputs : internal->pipeline_inputs) {

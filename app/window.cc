@@ -31,15 +31,15 @@ struct window::impl {
     unsigned int height;
 };
 
-window::window() : internal{new window::impl} {
+window::window(unsigned int width, unsigned int height) : internal{new window::impl} {
     internal->win = nullptr;
     internal->running = true;
-    internal->width = 640;
-    internal->height = 480;
+    internal->width = width;
+    internal->height = height;
     if (!glfwInit()) {
         throw window_exception {"glfwInit failed"};
     }
-    internal->win = glfwCreateWindow(640, 480, "Window title", NULL, NULL);
+    internal->win = glfwCreateWindow(internal->width, internal->height, "Window title", NULL, NULL);
     if (!internal->win) {
         glfwTerminate();
         throw window_exception {"glfwCreateWindow failed"};

@@ -18,7 +18,7 @@ private:
 };
 
 struct window {
-    window();
+    window(unsigned int width, unsigned int height);
     window(window const& other) = delete;
     window(window&& other) = delete;
     window& operator=(window const& other) = delete;
